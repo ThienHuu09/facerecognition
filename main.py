@@ -3,7 +3,7 @@ import cv2
 import os
 from PIL import Image
 import sys
-import openpyxl  # Import thư viện openpyxl
+import openpyxl
 from openpyxl import Workbook
 
 sys.stdout.reconfigure(encoding='utf-8')
@@ -13,8 +13,7 @@ def read_image(image_path):
         img = Image.open(image_path).convert('L')
         img = np.array(img)
         return img
-    except Exception as e:
-        print(f"Error reading image {image_path}: {e}")
+    except:
         return None
 
 def resize_image(image, new_size=(100, 100)):
@@ -56,9 +55,9 @@ def load_dataset(dataset_path):
     face_path = os.path.join(dataset_path, 'face')
     non_face_path = os.path.join(dataset_path, 'non_face')
     if not os.path.exists(face_path):
-        raise FileNotFoundError(f"Face directory not found: {face_path}")
+        raise FileNotFoundError
     if not os.path.exists(non_face_path):
-        raise FileNotFoundError(f"Non-face directory not found: {non_face_path}")
+        raise FileNotFoundError
     
     for person_folder in os.listdir(face_path):
         person_path = os.path.join(face_path, person_folder)
@@ -71,7 +70,7 @@ def load_dataset(dataset_path):
                     image = resize_image(image, new_size=(100, 100))
                     face_images.append(image)
                     face_labels.append(current_label)
-                    for _ in range(1):  # 1 ảnh tăng cường
+                    for _ in range(1):
                         augmented = augment_image(image)
                         augmented = resize_image(augmented, new_size=(100, 100))
                         face_images.append(augmented)
@@ -86,7 +85,7 @@ def load_dataset(dataset_path):
             non_face_images.append(image)
     
     if not face_images or not non_face_images:
-        raise ValueError("No valid images found in dataset")
+        raise ValueError
     
     face_labels_one_hot = np.eye(len(label_map))[face_labels]
     return face_images, face_labels, face_labels_one_hot, non_face_images, label_map
@@ -94,7 +93,6 @@ def load_dataset(dataset_path):
 def detect_and_crop_face(image, adaboost_features=None, adaboost_weights=None, adaboost_thresholds=None):
     face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
     if face_cascade.empty():
-        print("Lỗi: Không thể tải Haar Cascade classifier!")
         return None
     faces = face_cascade.detectMultiScale(image, scaleFactor=1.01, minNeighbors=1, minSize=(15, 15))
     if len(faces) > 0:
@@ -143,7 +141,7 @@ def preprocess_and_extract_features(image, adaboost_features=None, adaboost_weig
 
 def pca_with_whitening(X, n_components=50):
     if X.size == 0 or X.shape[0] == 0:
-        raise ValueError("Empty feature array, cannot perform PCA")
+        raise ValueError
     mean = np.mean(X, axis=0)
     X_centered = X - mean
     cov_matrix = np.dot(X_centered.T, X_centered) / X.shape[0]
@@ -179,9 +177,6 @@ def train_softmax_minibatch(X, y, n_classes, batch_size=32, learning_rate=0.01, 
             grad_b = np.sum(grad, axis=0, keepdims=True) / X_batch.shape[0]
             W -= lr * grad_W
             b -= lr * grad_b
-        if epoch % 10 == 0:
-            loss = cross_entropy_loss(y, softmax(np.dot(X, W.T) + b), W)
-            print(f"Epoch {epoch}, Loss: {loss:.4f}")
     return W, b
 
 def predict_softmax(X, W, b):
@@ -190,53 +185,37 @@ def predict_softmax(X, W, b):
     return np.argmax(y_pred, axis=1)
 
 def train_model(dataset_path, n_classes):
-    print("Bắt đầu huấn luyện mô hình...")
-    try:
-        face_images, face_labels, face_labels_one_hot, non_face_images, label_map = load_dataset(dataset_path)
-        print(f"Loaded {len(face_images)} face images, {len(non_face_images)} non-face images")
-        
-        X_train = []
-        valid_labels = []
-        for idx, (img, label) in enumerate(zip(face_images, face_labels)):
-            features = preprocess_and_extract_features(img)
-            if features is not None:
-                X_train.append(features)
-                valid_labels.append(label)
-            else:
-                person_name = [name for name, l in label_map.items() if l == label][0]
-                print(f"Failed to detect face in image {idx} for person {person_name}")
-        X_train = np.array(X_train)
-        valid_labels_one_hot = np.eye(n_classes)[valid_labels]
-        print(f"Number of successfully processed face images: {len(X_train)}")
-        
-        if len(X_train) == 0:
-            raise ValueError("No face images were successfully processed")
-        
-        print("Bắt đầu PCA và huấn luyện softmax...")
-        X_reduced, components, mean = pca_with_whitening(X_train, n_components=50)
-        W, b = train_softmax_minibatch(X_reduced, valid_labels_one_hot, n_classes)
-        print("Huấn luyện hoàn tất!")
-        
-        return W, b, components, mean, label_map, None, None, None
-    except Exception as e:
-        print(f"Lỗi trong train_model: {e}")
-        raise
+    face_images, face_labels, face_labels_one_hot, non_face_images, label_map = load_dataset(dataset_path)
+    
+    X_train = []
+    valid_labels = []
+    for img, label in zip(face_images, face_labels):
+        features = preprocess_and_extract_features(img)
+        if features is not None:
+            X_train.append(features)
+            valid_labels.append(label)
+    X_train = np.array(X_train)
+    valid_labels_one_hot = np.eye(n_classes)[valid_labels]
+    
+    if len(X_train) == 0:
+        raise ValueError
+    
+    X_reduced, components, mean = pca_with_whitening(X_train, n_components=50)
+    W, b = train_softmax_minibatch(X_reduced, valid_labels_one_hot, n_classes)
+    
+    return W, b, components, mean, label_map, None, None, None
 
 def predict_from_camera(W, b, components, mean, label_map, adaboost_features=None, adaboost_weights=None, adaboost_thresholds=None):
-    print("Bắt đầu nhận diện qua camera...")
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
-        print("Không thể mở camera")
         return
     
-    # --- Tích hợp Excel ---
     wb = Workbook()
     ws = wb.active
     ws.title = "Nhan Dien Khuon Mat"
     ws.append(["Ten Nguoi Duoc Nhan Dien"])
     recorded_names = set()
     excel_filename = "ket_qua_nhan_dien.xlsx"
-    # --- Kết thúc tích hợp Excel ---
 
     predictions = []
     smoothed_name = "Unknown"
@@ -245,7 +224,6 @@ def predict_from_camera(W, b, components, mean, label_map, adaboost_features=Non
         while True:
             ret, frame = cap.read()
             if not ret:
-                print("Không thể chụp khung hình")
                 break
             
             frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -261,19 +239,14 @@ def predict_from_camera(W, b, components, mean, label_map, adaboost_features=Non
                 if len(predictions) >= 5:
                     smoothed_label = np.bincount(predictions[-5:]).argmax()
                     smoothed_name = [name for name, idx in label_map.items() if idx == smoothed_label][0]
-                    print(f"Nhận diện được: {smoothed_name}")
                     
-                    # --- Ghi vào file Excel nếu chưa có ---
                     if smoothed_name != "Unknown" and smoothed_name not in recorded_names:
                         ws.append([smoothed_name])
                         recorded_names.add(smoothed_name)
                         wb.save(excel_filename)
-                        print(f"Đã ghi tên '{smoothed_name}' vào file {excel_filename}")
-                    # --- Kết thúc ghi vào file Excel ---
 
             else:
                 smoothed_name = "Unknown"
-                print("Không phát hiện khuôn mặt")
                 
             cv2.putText(frame, smoothed_name, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
             cv2.imshow('Camera', frame)
@@ -284,18 +257,10 @@ def predict_from_camera(W, b, components, mean, label_map, adaboost_features=Non
     finally:
         cap.release()
         cv2.destroyAllWindows()
-        print("Đã tắt camera")
-        # --- Lưu file Excel lần cuối khi thoát ---
         wb.save(excel_filename)
-        print(f"File Excel '{excel_filename}' đã được lưu.")
-        # --- Kết thúc lưu file Excel ---
 
 if __name__ == "__main__":
     dataset_path = "D:/PYCHARM - Copy/data"
-    n_classes = 10 
-    print("Khởi chạy chương trình...")
-    try:
-        W, b, components, mean, label_map, _, _, _ = train_model(dataset_path, n_classes)
-        predict_from_camera(W, b, components, mean, label_map)
-    except Exception as e:
-        print(f"Lỗi trong main: {e}")
+    n_classes = 10
+    W, b, components, mean, label_map, _, _, _ = train_model(dataset_path, n_classes)
+    predict_from_camera(W, b, components, mean, label_map)
